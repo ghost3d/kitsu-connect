@@ -1,12 +1,14 @@
 """Turn raw Kitsu records into flat task rows with a local folder path.
 
-Folder layout, relative to the root folder set in the add-on:
+Folder layout, relative to the local folder set in the add-on. Everything Kitsu
+related lives under <project>/Source/, so it never collides with folders a game
+engine keeps at the project root (Unity's Assets/ and Scenes/, for example):
 
-    <project>/shots/<episode>/<sequence>/<shot>/<task_type>/
-    <project>/assets/<asset_type>/<asset>/<task_type>/
-    <project>/sequences/<episode>/<sequence>/<task_type>/     (sequence-level tasks)
-    <project>/episodes/<episode>/<task_type>/                 (episode-level tasks)
-    <project>/<entity_type>/<entity>/<task_type>/             (anything else, e.g. concepts)
+    <project>/Source/shots/<episode>/<sequence>/<shot>/<task_type>/
+    <project>/Source/assets/<asset_type>/<asset>/<task_type>/
+    <project>/Source/sequences/<episode>/<sequence>/<task_type>/  (sequence-level tasks)
+    <project>/Source/episodes/<episode>/<task_type>/              (episode-level tasks)
+    <project>/Source/<entity_type>/<entity>/<task_type>/          (anything else, e.g. concepts)
 
 The episode level is left out for projects without episodes (feature films).
 Kept free of bpy so it can be tested outside Blender.
@@ -15,6 +17,8 @@ Kept free of bpy so it can be tested outside Blender.
 import os
 import re
 from dataclasses import dataclass, field
+
+SOURCE_DIR = "Source"
 
 _BAD_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
@@ -125,7 +129,7 @@ def collect_tasks(client, only_mine=True, projects=None):
                 status=status.get("short_name", "?"),
                 status_done=bool(status.get("is_done")),
                 assigned_to_me=me in (t.get("assignees") or []),
-                path_parts=parts + [safe_name(ttype)],
+                path_parts=[parts[0], SOURCE_DIR, *parts[1:], safe_name(ttype)],
             ))
 
     order = {"ASSET": 0, "EPISODE": 1, "SEQUENCE": 2, "SHOT": 3, "OTHER": 4}

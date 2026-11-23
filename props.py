@@ -82,8 +82,8 @@ class KitsuPreferences(AddonPreferences):
     saved_password: StringProperty(name="Password", subtype='PASSWORD')
     root_dir: StringProperty(
         name="Local Folder", subtype='DIR_PATH',
-        description="Folder on this computer where each Kitsu project's shot and asset "
-                    "folders are created, e.g. D:/projects  ->  D:/projects/DEV/shots/...")
+        description="Folder on this computer that holds your project folders. Kitsu files go "
+                    "in <project>/Source, e.g. D:/projects  ->  D:/projects/DEV/Source/shots/...")
     only_my_tasks: BoolProperty(
         name="Only My Tasks", default=True, update=_on_only_mine_changed,
         description="Only list tasks assigned to you. Off lists every task in the project")
@@ -109,6 +109,8 @@ class KitsuPreferences(AddonPreferences):
         col.prop(self, "record_in_kitsu")
         col.prop(self, "attach_snapshot")
         col.prop(self, "set_wip")
+        self.layout.separator()
+        self.layout.operator("kitsu.uninstall", icon='TRASH')
 
 
 class KitsuTaskItem(PropertyGroup):

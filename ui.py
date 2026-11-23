@@ -88,7 +88,8 @@ class KITSU_PT_local(KitsuPanelBase, Panel):
             return
         task = active_task(context)
         if task and session.data["project_id"] != "ALL":
-            project_dir = os.path.join(local_root(context), task.rel_path.split(os.sep)[0])
+            # <local>/<project>/Source: everything the add-on creates lives in here
+            project_dir = os.path.join(local_root(context), *task.rel_path.split(os.sep)[:2])
             row = layout.row()
             row.label(text=project_dir, icon='FILE_FOLDER')
             row.label(text="", icon='CHECKMARK' if os.path.isdir(project_dir) else 'BLANK1')
@@ -165,8 +166,25 @@ class KITSU_PT_task_files(KitsuPanelBase, Panel):
             layout.label(text="No .blend files for this task yet")
 
 
+class KITSU_PT_settings(KitsuPanelBase, Panel):
+    bl_label = "Settings"
+    bl_idname = "KITSU_PT_settings"
+    bl_parent_id = "KITSU_PT_main"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        prefs = get_prefs(context)
+        col = layout.column()
+        col.prop(prefs, "record_in_kitsu")
+        col.prop(prefs, "attach_snapshot")
+        col.prop(prefs, "set_wip")
+        layout.separator()
+        layout.operator("kitsu.uninstall", icon='TRASH')
+
+
 classes = (KITSU_UL_tasks, KITSU_UL_files, KITSU_PT_main, KITSU_PT_local,
-           KITSU_PT_tasks, KITSU_PT_task_files)
+           KITSU_PT_tasks, KITSU_PT_task_files, KITSU_PT_settings)
 
 
 def register():
