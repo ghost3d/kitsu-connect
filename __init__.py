@@ -1,16 +1,16 @@
 bl_info = {
     "name": "Kitsu Connect",
     "author": "Michael Kirylo",
-    "version": (0, 2, 0),
+    "version": (0, 3, 0),
     "blender": (4, 2, 0),
     "location": "3D Viewport > Sidebar > Kitsu",
     "description": "Browse your Kitsu tasks and manage task files",
     "category": "Pipeline",
 }
 
-from . import props, operators, ui, uninstall  # noqa: E402
+from . import props, operators, thumbs, ui, uninstall  # noqa: E402
 
-_modules = (props, operators, uninstall, ui)
+_modules = (props, thumbs, operators, uninstall, ui)
 
 
 def register():

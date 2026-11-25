@@ -6,7 +6,7 @@ import bpy
 from bpy.props import BoolProperty, EnumProperty, StringProperty
 from bpy.types import Operator
 
-from . import publish, session, tasks
+from . import browser, publish, session, tasks
 from .api import KitsuError, client, is_local_host, normalize_host
 from .props import (active_task, get_prefs, get_state, local_root,
                     refresh_file_list, task_folder)
@@ -34,14 +34,12 @@ def load_tasks(context):
     if session.data["project_id"] not in valid:
         session.data["project_id"] = projects[0]["id"] if projects else ""
     fill_state(context)
-    return len(get_state(context).tasks)
+    return len(browser.project_rows())
 
 
 def fill_state(context, selected_id=None):
     """Copy session data into the WindowManager UI state."""
     prefs, state = get_prefs(context), get_state(context)
-    if selected_id is None:
-        selected_id = session.data["selected_task"]
     pid = session.data["project_id"]
 
     state.logged_in = client.logged_in
@@ -52,30 +50,9 @@ def fill_state(context, selected_id=None):
             state.project = pid
         except TypeError:
             pass
+    browser.rebuild(context, selected_id)
 
-    rows = [r for r in session.data["rows"] if pid == "ALL" or r.project_id == pid]
-    state.tasks.clear()
-    new_index = -1
-    for i, r in enumerate(rows):
-        item = state.tasks.add()
-        item.name = f"{r.project_name} {r.label} {r.task_type} {r.status}"
-        item.task_id = r.task_id
-        item.project_id = r.project_id
-        item.project_name = r.project_name
-        item.kind = r.kind
-        item.entity_id = r.entity_id
-        item.entity_name = r.entity_name
-        item.label = r.label
-        item.task_type = r.task_type
-        item.status = r.status
-        item.status_done = r.status_done
-        item.assigned_to_me = r.assigned_to_me
-        item.rel_path = r.rel_path
-        if r.task_id == selected_id:
-            new_index = i
-    state.task_index = new_index if new_index >= 0 else (0 if rows else -1)
-    refresh_file_list(context)
-
+    rows = browser.project_rows()
     scope = "assigned to you" if prefs.only_my_tasks else "in project"
     session.data["message"] = f"{len(rows)} tasks {scope}"
     state.status_message = session.data["message"]
@@ -102,6 +79,7 @@ def _apply_status(task_id, status):
             r.task_status_id = status["id"]
             r.status = status.get("short_name", r.status)
             r.status_done = bool(status.get("is_done"))
+            r.status_kind = tasks.status_kind(status)
 
 
 def _start_work_on_open(row, filepath):
@@ -181,8 +159,10 @@ class KITSU_OT_logout(Operator):
         state = get_state(context)
         state.logged_in = False
         state.user_name = ""
+        state.entities.clear()
         state.tasks.clear()
         state.files.clear()
+        state.entity_index = -1
         state.task_index = -1
         state.status_message = "Logged out"
         return {'FINISHED'}
@@ -222,19 +202,19 @@ class KITSU_OT_build_folders(Operator):
 
     @classmethod
     def poll(cls, context):
-        return len(get_state(context).tasks) > 0
+        return bool(browser.project_rows())
 
     def execute(self, context):
         if not _require_root(self, context):
             return {'CANCELLED'}
-        state = get_state(context)
+        paths = [r.rel_path for r in browser.project_rows()]
         try:
-            created = tasks.build_folders(local_root(context), [t.rel_path for t in state.tasks])
+            created = tasks.build_folders(local_root(context), paths)
         except OSError as e:
             self.report({'ERROR'}, f"Could not create folders: {e}")
             return {'CANCELLED'}
         self.report({'INFO'}, f"Created {created} folders "
-                              f"({len(state.tasks) - created} already existed)")
+                              f"({len(paths) - created} already existed)")
         return {'FINISHED'}
 
 
@@ -313,6 +293,29 @@ def _viewport_snapshot():
     return path if os.path.isfile(path) else None
 
 
+THUMB_WIDTH = 320
+
+
+def _write_thumbnail(snapshot, blend_path):
+    """Save a small copy of the snapshot as the version's thumbnail in the browser."""
+    dest = tasks.thumbnail_path(blend_path)
+    img = None
+    try:
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        img = bpy.data.images.load(snapshot, check_existing=False)
+        w, h = img.size
+        if w > THUMB_WIDTH:
+            img.scale(THUMB_WIDTH, max(1, round(h * THUMB_WIDTH / w)))
+        img.filepath_raw = dest
+        img.file_format = 'PNG'
+        img.save()
+    except Exception as e:  # a missing thumbnail must never block a save
+        print(f"Kitsu Connect: could not write thumbnail: {e}")
+    finally:
+        if img is not None:
+            bpy.data.images.remove(img)
+
+
 def _task_info(task):
     """Plain copy of a task item; the item itself can be freed when a file loads."""
     return {k: getattr(task, k) for k in
@@ -337,7 +340,21 @@ def _save_version(op, context, info, version, note, record):
         op.report({'ERROR'}, f"Could not create the task folder: {e}")
         return {'CANCELLED'}
 
-    bpy.ops.wm.save_as_mainfile(filepath=path)
+    # Snapshot before saving: the thumbnail work adds an image to the file, and doing it
+    # first means the saved file is left clean.
+    snapshot = _viewport_snapshot()
+    try:
+        if snapshot:
+            _write_thumbnail(snapshot, path)
+        bpy.ops.wm.save_as_mainfile(filepath=path)
+        return _after_save(op, context, info, path, version, note, record,
+                           snapshot if get_prefs(context).attach_snapshot else None)
+    finally:
+        if snapshot and os.path.isfile(snapshot):
+            os.remove(snapshot)
+
+
+def _after_save(op, context, info, path, version, note, record, snapshot):
     session.data["selected_task"] = info["task_id"]
     refresh_file_list(bpy.context)
     msg = f"Saved {os.path.basename(path)}"
@@ -345,7 +362,6 @@ def _save_version(op, context, info, version, note, record):
     set_wip = get_prefs(context).set_wip
     status = None
     if client.logged_in and record:
-        snapshot = _viewport_snapshot() if get_prefs(context).attach_snapshot else None
         try:
             summary, status = publish.record_version(
                 client, info["task_id"], info["entity_id"], path, version, note, snapshot,
@@ -354,9 +370,6 @@ def _save_version(op, context, info, version, note, record):
         except (KitsuError, OSError) as e:
             op.report({'WARNING'}, f"{msg}, but recording it in Kitsu failed: {e}")
             return {'FINISHED'}
-        finally:
-            if snapshot and os.path.isfile(snapshot):
-                os.remove(snapshot)
     elif client.logged_in and set_wip:
         # Not recording the version, but work has still started on the task.
         try:

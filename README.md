@@ -7,7 +7,11 @@ that are recorded back in Kitsu.
 ## Features
 
 - Log in with server address, email and password (password kept in memory unless you choose to remember it)
-- Project selector and task list (only your tasks, or every task in the project)
+- A browser laid out like a pipeline project browser: project → **Assets / Shots** →
+  asset type or sequence → asset or shot (with its Kitsu description and thumbnail) →
+  task → version cards with a thumbnail, date and size. Shows only your tasks, or every
+  task in the project
+- Each saved version gets a thumbnail of the viewport in `<task>/_thumbs/`
 - Local folder structure mirroring Kitsu, all under `Source/` so it never clashes with a
   Unity (or other engine) project in the same folder:
   - `<local>/<project>/Source/shots/<episode>/<sequence>/<shot>/<task_type>/`

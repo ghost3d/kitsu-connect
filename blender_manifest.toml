@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "kitsu_connect"
-version = "0.2.0"
+version = "0.3.0"
 name = "Kitsu Connect"
 tagline = "Browse your Kitsu tasks and manage task files"
 maintainer = "Michael Kirylo"

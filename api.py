@@ -166,6 +166,24 @@ class KitsuClient:
     def task(self, task_id):
         return self.get(f"/data/tasks/{task_id}")
 
+    def download(self, path, dest, timeout=5):
+        """Save a binary file (e.g. a thumbnail) from the API to `dest`."""
+        if not self.logged_in:
+            raise KitsuError("Not logged in.")
+        req = urllib.request.Request(self.host + "/api" + path,
+                                     headers={"Authorization": "Bearer " + self.access_token})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                content = resp.read()
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            raise KitsuError(f"Download failed: {e}") from None
+        with open(dest, "wb") as f:
+            f.write(content)
+        return dest
+
+    def thumbnail(self, preview_file_id, dest):
+        return self.download(f"/pictures/thumbnails/preview-files/{preview_file_id}.png", dest)
+
     # ------------------------------------------------------------ versions
     def create_working_file(self, task_id, entity_id, revision, path, comment=""):
         return self.post("/data/working-files", {

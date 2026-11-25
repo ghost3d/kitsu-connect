@@ -1,4 +1,5 @@
 import os
+import time
 
 import bpy
 from bpy.props import (BoolProperty, CollectionProperty, EnumProperty, IntProperty,
@@ -39,11 +40,29 @@ def _on_only_mine_changed(self, context):
             get_state(context).status_message = str(e)
 
 
+def _on_kind_changed(self, context):
+    from . import browser
+    browser.on_kind_changed(self, context)
+
+
+def _on_group_changed(self, context):
+    from . import browser
+    browser.on_group_changed(self, context)
+
+
+def _get_group_items(self, context):
+    from . import browser
+    return browser.group_items()
+
+
+def _on_entity_selected(self, context):
+    from . import browser
+    browser.on_entity_changed(self, context)
+
+
 def _on_task_selected(self, context):
-    task = active_task(context)
-    if task:
-        session.data["selected_task"] = task.task_id
-    refresh_file_list(context)
+    from . import browser
+    browser.on_task_changed(self, context)
 
 
 # Blender needs the enum item list kept alive in Python, or labels turn to garbage.
@@ -124,14 +143,30 @@ class KitsuTaskItem(PropertyGroup):
     label: StringProperty()
     task_type: StringProperty()
     status: StringProperty()
+    status_kind: StringProperty()
     status_done: BoolProperty()
     assigned_to_me: BoolProperty()
     rel_path: StringProperty()
 
 
+class KitsuEntityItem(PropertyGroup):
+    # `name` (built in) is the asset or shot name, which the list filter matches on.
+    entity_id: StringProperty()
+    kind: StringProperty()
+    group: StringProperty()
+    project_name: StringProperty()
+    description: StringProperty()
+    preview_file_id: StringProperty()
+    task_count: IntProperty()
+    done_count: IntProperty()
+    my_count: IntProperty()
+
+
 class KitsuFileItem(PropertyGroup):
     filepath: StringProperty()
     version: IntProperty(default=-1)
+    modified: StringProperty()
+    size: StringProperty()
 
 
 class KitsuState(PropertyGroup):
@@ -143,6 +178,16 @@ class KitsuState(PropertyGroup):
     status_message: StringProperty()
     project: EnumProperty(name="Project", items=_get_project_items, update=_on_project_changed,
                           description="Kitsu project to browse")
+    browse_kind: EnumProperty(
+        name="Browse", update=_on_kind_changed,
+        items=[('ASSETS', "Assets", "Browse assets by asset type", 'ASSET_MANAGER', 0),
+               ('SHOTS', "Shots", "Browse shots by sequence", 'SEQUENCE', 1)])
+    group: EnumProperty(name="Group", items=_get_group_items, update=_on_group_changed,
+                        description="Asset type or sequence to list")
+    entities: CollectionProperty(type=KitsuEntityItem)
+    entity_index: IntProperty(default=-1, update=_on_entity_selected)
+    show_all_files: BoolProperty(name="Show All Versions", default=False,
+                                 description="List every file, not only the latest few")
     tasks: CollectionProperty(type=KitsuTaskItem)
     task_index: IntProperty(default=-1, update=_on_task_selected)
     files: CollectionProperty(type=KitsuFileItem)
@@ -174,19 +219,32 @@ def latest_version(context=None):
     return max((f.version for f in get_state(context).files), default=0)
 
 
+def _size_text(nbytes):
+    for unit in ("B", "KB", "MB"):
+        if nbytes < 1024:
+            return f"{nbytes:.0f} {unit}" if unit == "B" else f"{nbytes:.1f} {unit}"
+        nbytes /= 1024
+    return f"{nbytes:.1f} GB"
+
+
 def refresh_file_list(context=None):
     state = get_state(context)
     state.files.clear()
     folder = task_folder(active_task(context), context)
-    for name, version, _mtime in tasks.list_blend_files(folder):
+    for name, version, mtime in tasks.list_blend_files(folder):
         item = state.files.add()
         item.name = name
         item.filepath = os.path.join(folder, name)
         item.version = version if version is not None else 0
+        item.modified = time.strftime("%d %b %Y  %H:%M", time.localtime(mtime))
+        try:
+            item.size = _size_text(os.path.getsize(item.filepath))
+        except OSError:
+            item.size = ""
     state.file_index = 0 if state.files else -1
 
 
-classes = (KitsuPreferences, KitsuTaskItem, KitsuFileItem, KitsuState)
+classes = (KitsuPreferences, KitsuTaskItem, KitsuEntityItem, KitsuFileItem, KitsuState)
 
 
 def register():

@@ -43,6 +43,23 @@ class TaskRow:
     status_done: bool
     assigned_to_me: bool
     path_parts: list = field(default_factory=list)
+    status_kind: str = "TODO"      # TODO, WIP, WFA, RETAKE, DONE
+    description: str = ""          # the entity's description in Kitsu
+    preview_file_id: str = ""      # the entity's thumbnail in Kitsu
+
+    @property
+    def section(self) -> str:
+        """Which side of the browser the row belongs to: ASSETS or SHOTS."""
+        return "ASSETS" if self.kind in ("ASSET", "OTHER") else "SHOTS"
+
+    @property
+    def group(self) -> str:
+        """Asset type for assets, episode / sequence for shots."""
+        if self.kind == "SEQUENCE":
+            return "Sequences"
+        if self.kind == "EPISODE":
+            return "Episodes"
+        return self.context or ("No Sequence" if self.kind == "SHOT" else "Other")
 
     @property
     def rel_path(self) -> str:
@@ -51,6 +68,18 @@ class TaskRow:
     @property
     def label(self) -> str:
         return f"{self.context} / {self.entity_name}" if self.context else self.entity_name
+
+
+def status_kind(status) -> str:
+    if status.get("is_done"):
+        return "DONE"
+    if status.get("is_retake"):
+        return "RETAKE"
+    if status.get("is_feedback_request"):
+        return "WFA"
+    if status.get("is_wip"):
+        return "WIP"
+    return "TODO"
 
 
 def _index(items):
@@ -86,6 +115,7 @@ def collect_tasks(client, only_mine=True, projects=None):
             ttype = task_types.get(t["task_type_id"], {}).get("name", "task")
             status = statuses.get(t["task_status_id"], {})
 
+            ent = shots.get(eid) or assets.get(eid) or sequences.get(eid) or episodes.get(eid)
             if eid in shots:
                 shot = shots[eid]
                 seq = sequences.get(shot.get("parent_id"))
@@ -130,6 +160,9 @@ def collect_tasks(client, only_mine=True, projects=None):
                 status_done=bool(status.get("is_done")),
                 assigned_to_me=me in (t.get("assignees") or []),
                 path_parts=[parts[0], SOURCE_DIR, *parts[1:], safe_name(ttype)],
+                status_kind=status_kind(status),
+                description=(ent or {}).get("description") or "",
+                preview_file_id=(ent or {}).get("preview_file_id") or "",
             ))
 
     order = {"ASSET": 0, "EPISODE": 1, "SEQUENCE": 2, "SHOT": 3, "OTHER": 4}
@@ -172,6 +205,15 @@ def _name_part(s) -> str:
 def version_filename(project, entity, task_type, version) -> str:
     """Proj_entity_task_v001.blend, e.g. DEV_SH-0001_Animation_v001.blend"""
     return f"{_name_part(project)}_{_name_part(entity)}_{_name_part(task_type)}_v{version:03d}.blend"
+
+
+THUMBS_DIR = "_thumbs"
+
+
+def thumbnail_path(blend_path) -> str:
+    """Where the browser keeps a version's thumbnail: <task>/_thumbs/<file>.png"""
+    folder, name = os.path.split(blend_path)
+    return os.path.join(folder, THUMBS_DIR, os.path.splitext(name)[0] + ".png")
 
 
 def next_version(folder) -> int:
